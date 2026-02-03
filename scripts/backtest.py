@@ -327,7 +327,10 @@ def backtest_day(
             continue
 
         # After sweep: keep updating FVG list and check for iFVG
-        df_after_sweep_1m = cur_nq.loc[pd.Timestamp(sweep_event.at, tz=tz) : ts]
+        sweep_ts = pd.Timestamp(sweep_event.at)
+        if sweep_ts.tzinfo is None:
+            sweep_ts = sweep_ts.tz_localize(tz)
+        df_after_sweep_1m = cur_nq.loc[sweep_ts : ts]
         if df_after_sweep_1m.empty or len(df_after_sweep_1m) < 10:
             continue
 
