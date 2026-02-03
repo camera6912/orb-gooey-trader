@@ -28,6 +28,16 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    """JSON encoder that handles datetime objects."""
+    def default(self, obj):
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, time):
+            return obj.isoformat()
+        return super().default(obj)
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -525,7 +535,7 @@ def main() -> int:
         "summary": summary,
         "results": [asdict(r) for r in results],
     }
-    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True, cls=DateTimeEncoder))
     print(f"Saved detailed results -> {out_path}")
 
     return 0
