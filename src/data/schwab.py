@@ -166,6 +166,70 @@ class SchwabClient:
             df = df.iloc[-bars:]
         return df
 
+    def get_history_1m(
+        self,
+        symbol: str,
+        start_dt: datetime,
+        end_dt: datetime,
+    ) -> pd.DataFrame:
+        """Fetch 1-minute candles for an arbitrary datetime range (ET).
+
+        Schwab accepts start/end datetimes; schwab-py has changed argument names over time,
+        so we try a couple of call signatures.
+        """
+        if not self.client:
+            raise RuntimeError("Not authenticated")
+
+        start_ts = pd.Timestamp(start_dt)
+        end_ts = pd.Timestamp(end_dt)
+        if start_ts.tzinfo is None:
+            start_ts = start_ts.tz_localize("America/New_York")
+        else:
+            start_ts = start_ts.tz_convert("America/New_York")
+
+        if end_ts.tzinfo is None:
+            end_ts = end_ts.tz_localize("America/New_York")
+        else:
+            end_ts = end_ts.tz_convert("America/New_York")
+
+        def _call(**kwargs):
+            return self.client.get_price_history(
+                symbol=symbol,
+                period_type=self.client.PriceHistory.PeriodType.DAY,
+                period=self.client.PriceHistory.Period.ONE_DAY,
+                frequency_type=self.client.PriceHistory.FrequencyType.MINUTE,
+                frequency=self.client.PriceHistory.Frequency.EVERY_MINUTE,
+                **kwargs,
+            )
+
+        resp = None
+        # Newer schwab-py uses start_datetime/end_datetime
+        try:
+            resp = _call(start_datetime=start_ts.to_pydatetime(), end_datetime=end_ts.to_pydatetime())
+        except TypeError:
+            resp = None
+
+        # Older signatures may use startDate/endDate (ms)
+        if resp is None:
+            try:
+                resp = _call(startDate=int(start_ts.timestamp() * 1000), endDate=int(end_ts.timestamp() * 1000))
+            except TypeError as e:
+                raise RuntimeError(f"Unsupported schwab-py get_price_history signature: {e}")
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"History failed: {resp.status_code} {resp.text}")
+
+        data = resp.json() or {}
+        candles = data.get("candles") or []
+        if not candles:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(candles)
+        df["datetime"] = pd.to_datetime(df["datetime"], unit="ms", utc=True).dt.tz_convert("America/New_York")
+        df = df.set_index("datetime").sort_index()
+        df = df[["open", "high", "low", "close", "volume"]]
+        return df.loc[start_ts:end_ts]
+
     def get_intraday(self, symbol: str, timeframe_min: int, bars: int = 600) -> pd.DataFrame:
         """Get intraday candles resampled to timeframe_min (1,3,5,15,240...)."""
         base = self.get_intraday_1m(symbol, bars=max(bars * max(1, timeframe_min), 1000))
